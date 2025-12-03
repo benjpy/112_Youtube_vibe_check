@@ -75,7 +75,7 @@ st.markdown("""
 
 # Header
 st.title("📺 YouTube Vibe Check")
-st.markdown("Get the vibe of any YouTube video in seconds. Powered by Gemini 2.0 Flash.")
+st.markdown("Get the vibe of any YouTube video in seconds. Powered by Gemini 2.5 Flash Lite.")
 
 # Input Section
 col1, col2 = st.columns([3, 1])
@@ -140,15 +140,15 @@ if url:
                     output_tokens = usage.get("candidates_token_count", 0)
                     total_tokens = usage.get("total_token_count", 0)
                     
-                    # Cost estimation (based on Gemini 1.5 Flash pricing as a proxy/baseline)
-                    # Input: $0.075 / 1M tokens
-                    # Output: $0.30 / 1M tokens
-                    input_cost = (prompt_tokens / 1_000_000) * 0.075
-                    output_cost = (output_tokens / 1_000_000) * 0.30
+                    # Cost estimation (based on Gemini 2.5 Flash Lite pricing as a proxy/baseline)
+                    # Input: $0.10 / 1M tokens
+                    # Output: $0.40 / 1M tokens
+                    input_cost = (prompt_tokens / 1_000_000) * 0.10
+                    output_cost = (output_tokens / 1_000_000) * 0.40
                     total_cost = input_cost + output_cost
                     
                     st.info(f"""
-                    **Token Usage & Cost Estimate** (based on 1.5 Flash rates):
+                    **Token Usage & Cost Estimate** (based on 2.5 Flash Lite rates):
                     - Input Tokens: {prompt_tokens:,}
                     - Output Tokens: {output_tokens:,}
                     - Total Tokens: {total_tokens:,}

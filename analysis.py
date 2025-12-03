@@ -64,7 +64,7 @@ def analyze_video(transcript, comments, video_metadata, target_language="Auto"):
     
     try:
         response = client.models.generate_content(
-            model="gemini-2.0-flash-exp",
+            model="gemini-2.5-flash",
             contents=prompt
         )
         
