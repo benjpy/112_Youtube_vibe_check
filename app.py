@@ -77,6 +77,17 @@ st.markdown("""
 st.title("📺 YouTube Vibe Check")
 st.markdown("Get the vibe of any YouTube video in seconds. Powered by Gemini 2.5 Flash Lite.")
 
+if st.button("Test Gemini"):
+    try:
+        client = get_gemini_client()
+        r = client.models.generate_content(
+            model="gemini-2.5-flash-lite",
+            contents="If you can read this, the REST transport works."
+        )
+        st.success(r.text)
+    except Exception as e:
+        st.error(f"Gemini error: {e}")
+
 # Input Section
 col1, col2 = st.columns([3, 1])
 with col1:
