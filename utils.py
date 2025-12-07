@@ -5,12 +5,13 @@ import yt_dlp
 from youtube_transcript_api import YouTubeTranscriptApi
 
 # List of public Invidious instances to try
+# Prioritize instances known to have working APIs and good uptime
 INVIDIOUS_INSTANCES = [
-    "https://iv.ggtyler.dev",
     "https://inv.tux.pizza",
     "https://invidious.jing.rocks", 
     "https://vid.puffyan.us",
-    "https://invidious.nerdvpn.de"
+    "https://invidious.nerdvpn.de",
+    "https://iv.ggtyler.dev" # Moved to bottom as it was returning HTML for captions
 ]
 
 def get_video_id(url):
@@ -163,34 +164,35 @@ def get_transcript(video_id):
             api = YouTubeTranscriptApi()
             
             # list(video_id) fetches available transcripts
-            # If cookie_path is provided, we can't easily pass it to api.list() directly 
-            # effectively because api.list is a static-like call on the class usually, 
-            # BUT the library allows: list_transcripts(video_id, cookies=...)
+            # Try newer API (list_transcripts) first, then fallback to legacy (list)
+            # list(video_id) fetches available transcripts
+            # Try newer API (list_transcripts) first
+            # If cookie_path is provided, we use it.
             
             if cookie_path:
-                transcript_list = YouTubeTranscriptApi.list_transcripts(video_id, cookies=cookie_path)
+                 transcript_list = YouTubeTranscriptApi.list_transcripts(video_id, cookies=cookie_path)
             else:
-                transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+                 transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
             
+            # NEWER API USAGE
             transcript = None
-            # logic to find english or fallback
             try:
                 transcript = transcript_list.find_transcript(['en'])
             except:
                 try:
-                    transcript = transcript_list.find_generated_transcript(['en'])
+                     transcript = transcript_list.find_generated_transcript(['en'])
                 except:
-                    for t in transcript_list:
-                        transcript = t
-                        break
+                     for t in transcript_list:
+                         transcript = t
+                         break
             
             if not transcript:
                 raise Exception("No transcript found in list.")
-                
+            
             fetched_transcript = transcript.fetch()
             full_text = " ".join([item['text'] for item in fetched_transcript])
             return full_text
-            
+
         except Exception as e:
             exceptions.append(f"Method '{name}' failed: {e}")
             
@@ -202,7 +204,9 @@ def get_transcript(video_id):
         try:
             api_url = f"{instance}/api/v1/captions/{video_id}?lang=en"
             
-            r = requests.get(api_url, timeout=5)
+            # Add User-Agent to avoid blocking
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+            r = requests.get(api_url, headers=headers, timeout=5)
             if r.status_code != 200:
                 raise Exception(f"Status {r.status_code}")
                 

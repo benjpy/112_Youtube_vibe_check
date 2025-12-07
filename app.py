@@ -140,8 +140,8 @@ if url:
                     st.warning(f"⚠️ Could not fetch comments. Analysis will be limited.\n\n**Reason:** {e}")
                 
                 if not transcript and not comments:
-                    st.error("❌ Cannot analyze video: Both transcript and comments are unavailable.")
-                    st.stop()
+                    st.warning("⚠️ Transcript and comments are unavailable. Analysis will be based on video metadata only.")
+                    # We do NOT stop here anymore, as per user request to rely on title/description.
             
             with st.spinner("Consulting the oracle (Gemini)..."):
                 # 4. Analyze
