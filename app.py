@@ -77,6 +77,8 @@ st.markdown("""
 st.title("📺 YouTube Vibe Check")
 st.markdown("Get the vibe of any YouTube video in seconds. Powered by Gemini 2.5 Flash Lite.")
 
+
+from analysis import get_gemini_client
 if st.button("Test Gemini"):
     try:
         client = get_gemini_client()
