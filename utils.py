@@ -4,6 +4,15 @@ import requests
 import yt_dlp
 from youtube_transcript_api import YouTubeTranscriptApi
 
+# List of public Invidious instances to try
+INVIDIOUS_INSTANCES = [
+    "https://iv.ggtyler.dev",
+    "https://inv.tux.pizza",
+    "https://invidious.jing.rocks", 
+    "https://vid.puffyan.us",
+    "https://invidious.nerdvpn.de"
+]
+
 def get_video_id(url):
     """
     Extracts the video ID from a YouTube URL.
@@ -50,28 +59,40 @@ def get_video_metadata(url):
             print(f"yt-dlp metadata error: {e}")
             print("Falling back to Invidious…")
 
-            # ---- FALLBACK USING INVIDIOUS ----  
+            # ---- FALLBACK USING INVIDIOUS (Multi-Instance) ----  
             video_id = get_video_id(url)
             if not video_id:
                 return None
 
-            try:
-                import requests
-                api_url = f"https://iv.ggtyler.dev/api/v1/videos/{video_id}"
-                r = requests.get(api_url, timeout=8)
-                if r.status_code != 200:
-                    raise Exception(f"Invidious returned status code {r.status_code}")
-                data = r.json()
+            last_inv_error = None
+            for instance in INVIDIOUS_INSTANCES:
+                try:
+                    import requests
+                    api_url = f"{instance}/api/v1/videos/{video_id}"
+                    # Short timeout to fail fast and try next
+                    r = requests.get(api_url, timeout=5)
+                    if r.status_code != 200:
+                         raise Exception(f"Status {r.status_code}")
+                    
+                    # Verify it's JSON
+                    try:
+                        data = r.json()
+                    except:
+                        raise Exception("Response was not JSON")
 
-                return {
-                    'title': data.get('title'),
-                    'description': data.get('description'),
-                    'channel': data.get('author'),
-                    'thumbnail': data.get('videoThumbnails', [{}])[0].get('url'),
-                    'duration': data.get('lengthSeconds')
-                }
-            except Exception as e2:
-                raise Exception(f"Video metadata fetch failed. yt-dlp Error: {yt_error}. Invidious Fallback Error: {e2}")
+                    return {
+                        'title': data.get('title'),
+                        'description': data.get('description'),
+                        'channel': data.get('author'),
+                        'thumbnail': data.get('videoThumbnails', [{}])[0].get('url'),
+                        'duration': data.get('lengthSeconds')
+                    }
+                except Exception as e:
+                    last_inv_error = e
+                    continue # Try next instance
+            
+            # If loop finishes without return
+            raise Exception(f"Video metadata fetch failed. yt-dlp Error: {yt_error}. Invidious Fallback Error: {last_inv_error}")
 
 def _parse_webvtt(vtt_content):
     """
@@ -173,30 +194,35 @@ def get_transcript(video_id):
         except Exception as e:
             exceptions.append(f"Method '{name}' failed: {e}")
             
-    # --- Attempt 3: Invidious API Fallback ---
-    try:
-        print("Falling back to Invidious for transcript...")
-        # Use a reliable instance (or the one we used for metadata)
-        # Using iv.ggtyler.dev as in other utils functions
-        api_url = f"https://iv.ggtyler.dev/api/v1/captions/{video_id}?lang=en"
-        
-        r = requests.get(api_url, timeout=10)
-        if r.status_code != 200:
-            # Try getting available captions list first if direct 'en' fails?
-            # For simplicity, if 'en' fails, we might just fail, but let's try 'auto' or 'en'
-            raise Exception(f"Invidious status {r.status_code}")
+    # --- Attempt 3: Invidious API Fallback (Multi-Instance) ---
+    print("Falling back to Invidious for transcript...")
+    last_inv_error = None
+    
+    for instance in INVIDIOUS_INSTANCES:
+        try:
+            api_url = f"{instance}/api/v1/captions/{video_id}?lang=en"
             
-        vtt_content = r.text
-        full_text = _parse_webvtt(vtt_content)
-        
-        # If empty, maybe try auto-generated?
-        if not full_text.strip():
-             raise Exception("Parsed empty text from Invidious VTT")
-             
-        return full_text
-        
-    except Exception as e:
-        exceptions.append(f"Method 'Invidious' failed: {e}")
+            r = requests.get(api_url, timeout=5)
+            if r.status_code != 200:
+                raise Exception(f"Status {r.status_code}")
+                
+            vtt_content = r.text
+            # If response is HTML (often error page), fail
+            if "<html" in vtt_content.lower() or "<!doctype" in vtt_content.lower():
+                raise Exception("Response looks like HTML, not VTT")
+                
+            full_text = _parse_webvtt(vtt_content)
+            
+            if not full_text.strip():
+                 raise Exception("Parsed empty text from Invidious VTT")
+                 
+            return full_text
+            
+        except Exception as e:
+            last_inv_error = e
+            continue
+
+    exceptions.append(f"Method 'Invidious' failed (all instances): {last_inv_error}")
 
     # If all failed
     final_error = "\n".join(exceptions)
@@ -230,24 +256,34 @@ def get_comments(url, limit=1000):
             yt_error = str(e)
             comments = None
 
-    # ---- Fallback to Invidious ----
+    # ---- Fallback to Invidious (Multi-Instance) ----
     if comments is None:
-        try:
-            import requests
-            video_id = get_video_id(url)
-            api_url = f"https://iv.ggtyler.dev/api/v1/comments/{video_id}"
-            r = requests.get(api_url, timeout=10)
-            if r.status_code != 200:
-                raise Exception(f"Invidious returned status {r.status_code}")
-            data = r.json()
-
-            comments = [
-                {"text": c.get("content"), "like_count": c.get("likes")}
-                for c in data.get("comments", [])
-            ]
-        except Exception as e2:
-            # If both failed, raise a detailed error
-            raise Exception(f"Comments fetch failed. yt-dlp Error: {yt_error}. Invidious Fallback Error: {e2}")
+        last_inv_error = None
+        for instance in INVIDIOUS_INSTANCES:
+            try:
+                import requests
+                video_id = get_video_id(url)
+                api_url = f"{instance}/api/v1/comments/{video_id}"
+                r = requests.get(api_url, timeout=5) # fast timeout
+                if r.status_code != 200:
+                    raise Exception(f"Status {r.status_code}")
+                
+                try:
+                    data = r.json()
+                except:
+                    raise Exception("Response was not JSON")
+    
+                comments = [
+                    {"text": c.get("content"), "like_count": c.get("likes")}
+                    for c in data.get("comments", [])
+                ]
+                break # Success
+            except Exception as e2:
+                last_inv_error = e2
+                continue
+        
+        if comments is None:
+             raise Exception(f"Comments fetch failed. yt-dlp Error: {yt_error}. Invidious Fallback Error: {last_inv_error}")
 
     # ---- Sort → format → return ----
     if comments:
