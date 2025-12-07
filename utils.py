@@ -32,6 +32,7 @@ def get_video_metadata(url):
         "retries": 1,
     }
 
+    yt_error = None
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         try:
             info = ydl.extract_info(url, download=False)
@@ -43,6 +44,7 @@ def get_video_metadata(url):
                 'duration': info.get('duration')
             }
         except Exception as e:
+            yt_error = str(e)
             print(f"yt-dlp metadata error: {e}")
             print("Falling back to Invidious…")
 
@@ -55,6 +57,8 @@ def get_video_metadata(url):
                 import requests
                 api_url = f"https://iv.ggtyler.dev/api/v1/videos/{video_id}"
                 r = requests.get(api_url, timeout=8)
+                if r.status_code != 200:
+                    raise Exception(f"Invidious returned status code {r.status_code}")
                 data = r.json()
 
                 return {
@@ -65,8 +69,7 @@ def get_video_metadata(url):
                     'duration': data.get('lengthSeconds')
                 }
             except Exception as e2:
-                print("Invidious fallback failed:", e2)
-                return None
+                raise Exception(f"Video metadata fetch failed. yt-dlp Error: {yt_error}. Invidious Fallback Error: {e2}")
 
 def get_transcript(video_id):
     """
@@ -94,18 +97,15 @@ def get_transcript(video_id):
                     pass
         
         if not transcript:
-            print("No transcript found.")
-            return None
+            raise Exception("No transcript found (neither English nor any other language).")
 
         fetched_transcript = transcript.fetch()
-        # Combine text into a single string. 
-        # Note: fetched_transcript is a list of objects with .text attribute
         full_text = " ".join([item.text for item in fetched_transcript])
         return full_text
             
     except Exception as e:
-        print(f"Error fetching transcript: {e}")
-        return None
+        # Wrap the error to be informative
+        raise Exception(f"Transcript fetch failed: {str(e)}")
 
 def get_comments(url, limit=1000):
     """
@@ -122,6 +122,9 @@ def get_comments(url, limit=1000):
         "socket_timeout": 5, # Fail fast if blocked
         "retries": 1,
     }
+    
+    yt_error = None
+    comments = None
 
     # ---- First try yt-dlp ----
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -129,7 +132,7 @@ def get_comments(url, limit=1000):
             info = ydl.extract_info(url, download=False)
             comments = info.get("comments", [])
         except Exception as e:
-            print("yt-dlp comments error:", e)
+            yt_error = str(e)
             comments = None
 
     # ---- Fallback to Invidious ----
@@ -139,6 +142,8 @@ def get_comments(url, limit=1000):
             video_id = get_video_id(url)
             api_url = f"https://iv.ggtyler.dev/api/v1/comments/{video_id}"
             r = requests.get(api_url, timeout=10)
+            if r.status_code != 200:
+                raise Exception(f"Invidious returned status {r.status_code}")
             data = r.json()
 
             comments = [
@@ -146,11 +151,12 @@ def get_comments(url, limit=1000):
                 for c in data.get("comments", [])
             ]
         except Exception as e2:
-            print("Invidious comments fallback failed:", e2)
-            return []
+            # If both failed, raise a detailed error
+            raise Exception(f"Comments fetch failed. yt-dlp Error: {yt_error}. Invidious Fallback Error: {e2}")
 
     # ---- Sort → format → return ----
-    comments.sort(key=lambda x: x.get("like_count", 0) or 0, reverse=True)
+    if comments:
+        comments.sort(key=lambda x: x.get("like_count", 0) or 0, reverse=True)
 
     formatted = []
     for c in comments[:limit]:

@@ -109,9 +109,11 @@ if url:
         if st.button("Analyze Vibe ✨"):
             with st.spinner("Fetching video data..."):
                 # 1. Get Metadata
-                metadata = utils.get_video_metadata(url)
-                if not metadata:
-                    st.error("Could not fetch video metadata.")
+                metadata = None
+                try:
+                    metadata = utils.get_video_metadata(url)
+                except Exception as e:
+                    st.error(f"❌ Could not fetch video metadata.\n\n**Reason:** {e}")
                     st.stop()
                 
                 # Display Video Info immediately
@@ -124,14 +126,22 @@ if url:
                 """, unsafe_allow_html=True)
                 
                 # 2. Get Transcript
-                transcript = utils.get_transcript(video_id)
-                if not transcript:
-                    st.warning("Could not fetch transcript. Analysis might be limited.")
+                transcript = None
+                try:
+                    transcript = utils.get_transcript(video_id)
+                except Exception as e:
+                    st.warning(f"⚠️ Could not fetch transcript. Analysis will be limited.\n\n**Reason:** {e}")
                 
                 # 3. Get Comments
-                comments = utils.get_comments(url, limit=1000)
-                if not comments:
-                    st.warning("Could not fetch comments. Analysis might be limited.")
+                comments = []
+                try:
+                    comments = utils.get_comments(url, limit=1000)
+                except Exception as e:
+                    st.warning(f"⚠️ Could not fetch comments. Analysis will be limited.\n\n**Reason:** {e}")
+                
+                if not transcript and not comments:
+                    st.error("❌ Cannot analyze video: Both transcript and comments are unavailable.")
+                    st.stop()
             
             with st.spinner("Consulting the oracle (Gemini)..."):
                 # 4. Analyze
@@ -153,7 +163,7 @@ if url:
                     output_tokens = usage.get("candidates_token_count", 0)
                     total_tokens = usage.get("total_token_count", 0)
                     
-                    # Cost estimation (based on Gemini 2.5 Flash Lite pricing as a proxy/baseline)
+                    # Cost estimation (based on Gemini 2.5 Flash pricing as a proxy/baseline)
                     # Input: $0.10 / 1M tokens
                     # Output: $0.40 / 1M tokens
                     input_cost = (prompt_tokens / 1_000_000) * 0.10
