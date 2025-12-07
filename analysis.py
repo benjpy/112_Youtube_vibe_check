@@ -15,7 +15,10 @@ def get_gemini_client():
             
     if not api_key:
         raise ValueError("GEMINI_API_KEY not found. Please set it in .env (local) or Streamlit Secrets (cloud).")
-    return genai.Client(api_key=api_key)
+    return genai.Client(
+    api_key=api_key,
+    transport="rest"   # <— prevents the discovery doc fetch that fails with 403
+)
 
 def analyze_video(transcript, comments, video_metadata, target_language="Auto"):
     """
