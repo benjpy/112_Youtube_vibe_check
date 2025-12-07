@@ -20,12 +20,16 @@ def get_video_id(url):
 def get_video_metadata(url):
     """
     Fetches video metadata (title, description, channel) using yt-dlp.
+    Includes User-Agent to avoid 403 on Streamlit Cloud.
+    Has fallback to Invidious if yt-dlp is blocked.
     """
     ydl_opts = {
-        'quiet': True,
-        'no_warnings': True,
-        'skip_download': True,
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
     }
+
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         try:
             info = ydl.extract_info(url, download=False)
@@ -37,8 +41,30 @@ def get_video_metadata(url):
                 'duration': info.get('duration')
             }
         except Exception as e:
-            print(f"Error fetching metadata: {e}")
-            return None
+            print(f"yt-dlp metadata error: {e}")
+            print("Falling back to Invidious…")
+
+            # ---- FALLBACK USING INVIDIOUS ----  
+            video_id = get_video_id(url)
+            if not video_id:
+                return None
+
+            try:
+                import requests
+                api_url = f"https://iv.ggtyler.dev/api/v1/videos/{video_id}"
+                r = requests.get(api_url, timeout=8)
+                data = r.json()
+
+                return {
+                    'title': data.get('title'),
+                    'description': data.get('description'),
+                    'channel': data.get('author'),
+                    'thumbnail': data.get('videoThumbnails', [{}])[0].get('url'),
+                    'duration': data.get('lengthSeconds')
+                }
+            except Exception as e2:
+                print("Invidious fallback failed:", e2)
+                return None
 
 def get_transcript(video_id):
     """
@@ -81,35 +107,52 @@ def get_transcript(video_id):
 
 def get_comments(url, limit=1000):
     """
-    Scrapes the top comments using yt-dlp.
-    Returns a list of strings formatted as "(Likes: X) Comment text".
+    Scrapes the top comments.
+    Falls back to Invidious if yt-dlp is blocked (403).
     """
     ydl_opts = {
-        'quiet': True,
-        'no_warnings': True,
-        'skip_download': True,
-        'getcomments': True,
-        'playlist_items': '0', # Only the video itself
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "getcomments": True,
+        "playlist_items": "0",
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
     }
-    
+
+    # ---- First try yt-dlp ----
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         try:
             info = ydl.extract_info(url, download=False)
-            comments = info.get('comments', [])
-            
-            # Sort by like_count if available to get "top" comments
-            if comments:
-                comments.sort(key=lambda x: x.get('like_count', 0) or 0, reverse=True)
-            
-            # Return top N comments with like count
-            formatted_comments = []
-            for c in comments[:limit]:
-                text = c.get('text')
-                likes = c.get('like_count', 0) or 0
-                if text:
-                    formatted_comments.append(f"(Likes: {likes}) {text}")
-            
-            return formatted_comments
+            comments = info.get("comments", [])
         except Exception as e:
-            print(f"Error fetching comments: {e}")
+            print("yt-dlp comments error:", e)
+            comments = None
+
+    # ---- Fallback to Invidious ----
+    if comments is None:
+        try:
+            import requests
+            video_id = get_video_id(url)
+            api_url = f"https://iv.ggtyler.dev/api/v1/comments/{video_id}"
+            r = requests.get(api_url, timeout=10)
+            data = r.json()
+
+            comments = [
+                {"text": c.get("content"), "like_count": c.get("likes")}
+                for c in data.get("comments", [])
+            ]
+        except Exception as e2:
+            print("Invidious comments fallback failed:", e2)
             return []
+
+    # ---- Sort → format → return ----
+    comments.sort(key=lambda x: x.get("like_count", 0) or 0, reverse=True)
+
+    formatted = []
+    for c in comments[:limit]:
+        text = c.get("text")
+        likes = c.get("like_count", 0) or 0
+        if text:
+            formatted.append(f"(Likes: {likes}) {text}")
+
+    return formatted
