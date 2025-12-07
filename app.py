@@ -130,7 +130,9 @@ if url:
                 try:
                     transcript = utils.get_transcript(video_id)
                 except Exception as e:
-                    st.warning(f"⚠️ Could not fetch transcript. Analysis will be limited.\n\n**Reason:** {e}")
+                    print(f"Transcript fetch failed: {e}")
+                    # Silently continue as requested by user
+                    st.toast("Transcript unavailable, analyzing metadata only")
                 
                 # 3. Get Comments
                 comments = []
