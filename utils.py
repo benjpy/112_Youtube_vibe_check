@@ -28,6 +28,8 @@ def get_video_metadata(url):
         "no_warnings": True,
         "skip_download": True,
         "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "socket_timeout": 5, # Fail fast if blocked
+        "retries": 1,
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -117,6 +119,8 @@ def get_comments(url, limit=1000):
         "getcomments": True,
         "playlist_items": "0",
         "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "socket_timeout": 5, # Fail fast if blocked
+        "retries": 1,
     }
 
     # ---- First try yt-dlp ----
