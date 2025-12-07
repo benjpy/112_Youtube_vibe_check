@@ -1,4 +1,6 @@
 import re
+import os
+import requests
 import yt_dlp
 from youtube_transcript_api import YouTubeTranscriptApi
 
@@ -71,41 +73,134 @@ def get_video_metadata(url):
             except Exception as e2:
                 raise Exception(f"Video metadata fetch failed. yt-dlp Error: {yt_error}. Invidious Fallback Error: {e2}")
 
+def _parse_webvtt(vtt_content):
+    """
+    Parses WebVTT content to extract just the text.
+    Removes timestamps, tags, and header.
+    """
+    lines = vtt_content.splitlines()
+    text_lines = []
+    
+    # Simple state machine or regex could work. 
+    # WebVTT typically has:
+    # WEBVTT
+    #
+    # 00:00:00.000 --> 00:00:05.000
+    # Text line
+    
+    timestamp_pattern = re.compile(r"\d{2}:\d{2}:\d{2}\.\d{3} --> \d{2}:\d{2}:\d{2}\.\d{3}")
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        if line == "WEBVTT":
+            continue
+        if timestamp_pattern.match(line):
+            continue
+        # Skip pure numbers (sequence identifiers, though not always present in WebVTT)
+        if line.isdigit():
+            continue
+            
+        # Remove HTML-like tags (e.g. <c.colorE5E5E5>)
+        line = re.sub(r'<[^>]+>', '', line)
+        
+        # Deduplicate logical lines if needed, but for now just gather
+        # Avoid empty lines after cleaning
+        if line:
+            text_lines.append(line)
+            
+    return " ".join(text_lines)
+
 def get_transcript(video_id):
     """
-    Fetches the transcript of the video using youtube-transcript-api.
+    Fetches the transcript of the video.
+    Priority:
+    1. youtube-transcript-api (standard)
+    2. youtube-transcript-api (with cookies.txt if available)
+    3. Invidious API (captions fallback)
     """
-    try:
-        api = YouTubeTranscriptApi()
-        transcript_list = api.list(video_id)
+    
+    # --- Attempt 1 & 2: youtube-transcript-api (Standard + Cookies) ---
+    exceptions = []
+    
+    # Check for cookies file
+    cookies_file = "cookies.txt"
+    has_cookies = os.path.exists(cookies_file)
+    
+    # Options to try: [No Cookies] then [Cookies] (if file exists)
+    # Actually, if cookies exist, we might want to try them first or second? 
+    # Usually standard first is better for privacy/simplicity, cookies as backup.
+    
+    attempts = [("Standard", None)]
+    if has_cookies:
+        attempts.append(("Cookies", cookies_file))
         
-        transcript = None
-        # Try to find manual English transcript
+    for name, cookie_path in attempts:
         try:
-            transcript = transcript_list.find_transcript(['en'])
-        except:
-            # Try to find auto-generated English transcript
+            # Note: We need to re-instantiate for each attempt to clear state if any
+            api = YouTubeTranscriptApi()
+            
+            # list(video_id) fetches available transcripts
+            # If cookie_path is provided, we can't easily pass it to api.list() directly 
+            # effectively because api.list is a static-like call on the class usually, 
+            # BUT the library allows: list_transcripts(video_id, cookies=...)
+            
+            if cookie_path:
+                transcript_list = YouTubeTranscriptApi.list_transcripts(video_id, cookies=cookie_path)
+            else:
+                transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            
+            transcript = None
+            # logic to find english or fallback
             try:
-                transcript = transcript_list.find_generated_transcript(['en'])
+                transcript = transcript_list.find_transcript(['en'])
             except:
-                # Fallback: take the first available transcript (any language)
                 try:
+                    transcript = transcript_list.find_generated_transcript(['en'])
+                except:
                     for t in transcript_list:
                         transcript = t
                         break
-                except:
-                    pass
-        
-        if not transcript:
-            raise Exception("No transcript found (neither English nor any other language).")
-
-        fetched_transcript = transcript.fetch()
-        full_text = " ".join([item.text for item in fetched_transcript])
-        return full_text
             
+            if not transcript:
+                raise Exception("No transcript found in list.")
+                
+            fetched_transcript = transcript.fetch()
+            full_text = " ".join([item['text'] for item in fetched_transcript])
+            return full_text
+            
+        except Exception as e:
+            exceptions.append(f"Method '{name}' failed: {e}")
+            
+    # --- Attempt 3: Invidious API Fallback ---
+    try:
+        print("Falling back to Invidious for transcript...")
+        # Use a reliable instance (or the one we used for metadata)
+        # Using iv.ggtyler.dev as in other utils functions
+        api_url = f"https://iv.ggtyler.dev/api/v1/captions/{video_id}?lang=en"
+        
+        r = requests.get(api_url, timeout=10)
+        if r.status_code != 200:
+            # Try getting available captions list first if direct 'en' fails?
+            # For simplicity, if 'en' fails, we might just fail, but let's try 'auto' or 'en'
+            raise Exception(f"Invidious status {r.status_code}")
+            
+        vtt_content = r.text
+        full_text = _parse_webvtt(vtt_content)
+        
+        # If empty, maybe try auto-generated?
+        if not full_text.strip():
+             raise Exception("Parsed empty text from Invidious VTT")
+             
+        return full_text
+        
     except Exception as e:
-        # Wrap the error to be informative
-        raise Exception(f"Transcript fetch failed: {str(e)}")
+        exceptions.append(f"Method 'Invidious' failed: {e}")
+
+    # If all failed
+    final_error = "\n".join(exceptions)
+    raise Exception(f"All transcript fetch methods failed.\n{final_error}")
 
 def get_comments(url, limit=1000):
     """
