@@ -135,7 +135,7 @@ if url:
                 # 3. Get Comments
                 comments = []
                 try:
-                    comments = utils.get_comments(url, limit=1000)
+                    comments = utils.get_comments(url, limit=50)
                 except Exception as e:
                     st.warning(f"⚠️ Could not fetch comments. Analysis will be limited.\n\n**Reason:** {e}")
                 
